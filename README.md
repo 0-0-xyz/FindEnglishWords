@@ -163,7 +163,7 @@ ml_prob：机器学习模型预测的概率
 ## ⚙️ 配置参数
 
 在代码开头的全局配置区域可调整：
-
+```python
 DATA_FILE = "English_words.csv"           # 输入数据文件
 OUTPUT_FILE = "word_similarity_output.csv" # 输出文件
 MAX_SAMPLES = 500                         # 最大处理数量（测试用）
@@ -173,9 +173,9 @@ EMBEDDING_DIM = 128                       # 词嵌入维度
 LSTM_HIDDEN = 64                          # LSTM隐藏层大小
 LSTM_LAYERS = 2                           # LSTM层数
 CNN_FILTERS = 100                         # CNN过滤器数量
-
+```
 ## 📁 项目结构
-
+```text
 word-similarity/
 ├── word_similarity.py      # 主程序
 ├── English_words.csv       # 输入数据
@@ -183,7 +183,7 @@ word-similarity/
 ├── local_model/            # 本地 BERT 模型
 ├── requirements.txt        # 依赖包列表
 └── README.md              # 说明文档
-
+```
 ## 🔧 常见问题
 
 Q1: 提示找不到 English_words.csv
