@@ -17,129 +17,165 @@
 
 ### 环境要求
 
-```bash
 Python 3.7+
 
-安装依赖
-bash
+### 安装依赖
+
 pip install -r requirements.txt
+
 核心依赖包：
 
 torch - 深度学习框架
-
 transformers - BERT 模型
-
 sentence-transformers - 语义向量编码
-
 scikit-learn - 机器学习算法
-
 pandas - 数据处理
-
 jieba - 中文分词
-
 Levenshtein - 编辑距离计算
 
-数据准备
+### 数据准备
+
 准备 CSV 文件 English_words.csv，包含两列：
 
-列名	说明	示例
-word	英文单词	apple
-meaning	中文释义	苹果；苹果公司
-运行程序
-bash
+| 列名 | 说明 | 示例 |
+|------|------|------|
+| word | 英文单词 | apple |
+| meaning | 中文释义 | 苹果；苹果公司 |
+
+### 运行程序
+
 python word_similarity.py
-📖 使用说明
-1. 批量模式
+
+## 📖 使用说明
+
+### 1. 批量模式
+
 批量生成所有单词的相似词列表并保存到文件：
 
-bash
 # 程序启动后输入
 请问是否需要生成【全数据集批量整理后的完整相似词列表文件】？请输入 yes / no : yes
+
 输出文件：word_similarity_output.csv
 
-2. 实时交互模式
-场景一：输入英文查字形相似词
-text
+### 2. 实时交互模式
+
+#### 场景一：输入英文查字形相似词
+
 请输入英文单词: apple
 请输入对应中文释义: 
+
 输出示例：
 
-text
 【英文字形相似词】
-  1. apply (0.723) —— 申请；应用
-  2. ample (0.651) —— 充足的
-  3. appeal (0.598) —— 呼吁；上诉
-场景二：输入中文查语义相似词
-text
+  1. ample (0.920)—— 充足的；宽敞的；丰富的
+  2. apply (0.920)—— 申请；应用；适用
+  3. sample (0.879)—— 样本；样品；抽样
+  4. applause (0.879)—— 掌声；喝彩
+  5. pale (0.853)—— 苍白的；暗淡的；变淡
+
+#### 场景二：输入中文查语义相似词
+
 请输入英文单词: 
 请输入对应中文释义: 高兴
+
 输出示例：
 
-text
 【中文语义相似词】
-  1. happy (0.856) —— 快乐的；幸福的
-  2. joyful (0.792) —— 喜悦的
-  3. delighted (0.734) —— 高兴的
-场景三：同时输入中英文双向检索
-text
+  1. merry (0.917) —— 愉快的；欢乐的
+  2. agreeable (0.889) —— 令人愉快的；随和的
+  3. please (0.880) —— 请；取悦；满意
+  4. smile (0.872) —— 微笑；笑容
+  5. happy (0.859) —— 快乐的；幸福的；愉快的
+
+#### 场景三：同时输入中英文双向检索
+
 请输入英文单词: happy
 请输入对应中文释义: 快乐
-输出字形和语义两个维度的相似词。
 
-3. 并行加速配置
+输出字形和语义两个维度的相似词。
+【英文字形相似词】
+  1. apply (0.880) —— 申请；应用；适用
+  2. hay (0.869) —— 干草；草料
+  3. handy (0.840) —— 方便的；手边的；灵巧的
+  4. hasty (0.840) —— 仓促的；草率的；匆忙的
+  5. heap (0.799) —— 堆；堆积；大量
+
+正在检索 '快乐'字形相似词 ...
+
+【中文语义相似词】
+  1. delight (0.939) —— 快乐；使高兴
+  2. merry (0.909) —— 愉快的；欢乐的
+  3. pleasure (0.904) —— 快乐；乐趣；荣幸
+  4. happy (0.892) —— 快乐的；幸福的；愉快的
+  5. smile (0.883) —— 微笑；笑容
+
+继续检索其他单词？(y/n): 
+
+### 3. 并行加速配置
+
 程序支持多线程并行处理，大幅提升批量检索速度：
 
-text
 是否启用并行搜索？(yes/no，默认yes): yes
-线程数 (1-8，默认4): 4
-🏗️ 系统架构
-text
+线程数 (1-24，默认12): 12
+
+## 🏗️ 系统架构
+
 数据预处理 → 特征提取 → 模型训练 → 相似度计算 → 结果输出
     ↓           ↓           ↓           ↓           ↓
   清洗分词   字形特征    ML/DL模型   加权融合    批量/实时
-核心模块说明
-模块	功能	关键技术
-DataPreprocessor	数据清洗、分词、词干提取	jieba, NLTK
-ShapeFeatureExtractor	字形特征提取	编辑距离、N-Gram
-ShapeMLModel	传统机器学习模型	LR, RF, GBDT
-WordEncoder	字形向量编码	LSTM/CNN
-SemanticEncoder	语义向量编码	BERT
-SimilaritySearcher	相似度检索与融合	加权评分
-📊 相似度算法
-字形相似度特征（7维）
-字符重合度
 
-最长公共子序列相似度
+### 核心模块说明
 
-N-Gram 相似度（2-gram）
+| 模块 | 功能 | 关键技术 |
+|------|------|----------|
+| DataPreprocessor | 数据清洗、分词、词干提取 | jieba, NLTK |
+| ShapeFeatureExtractor | 字形特征提取 | 编辑距离、N-Gram |
+| ShapeMLModel | 传统机器学习模型 | LR, RF, GBDT |
+| WordEncoder | 字形向量编码 | LSTM/CNN |
+| SemanticEncoder | 语义向量编码 | BERT |
+| SimilaritySearcher | 相似度检索与融合 | 加权评分 |
+| WordCluster | 无监督聚类 | KMeans |
 
-词根匹配
+## 📊 相似度算法
 
-长度相似度
+### 字形相似度特征（7维）
 
-编辑距离相似度
+1. 字符重合度（基于集合的交并比）
+2. 最长公共子序列相似度
+3. N-Gram 相似度（2-gram）
+4. 词根匹配（词干是否相同）
+5. 长度相似度（归一化长度差）
+6. 编辑距离相似度（Levenshtein）
+7. 位置偏移度（字母位置差异）
 
-位置偏移度
+### 最终评分公式
 
-最终评分公式
-text
 final_score = 0.4 × rule_score + 0.6 × ml_prob
-rule_score：序列相似度与编辑距离的均值
 
+rule_score：序列相似度与编辑距离的均值
 ml_prob：机器学习模型预测的概率
 
-⚙️ 配置参数
+## 过滤规则
+- 长度差超过 MAX_LEN_DIFF（默认3）→ 直接过滤
+- 编辑距离相似度 < 0.25 → 直接过滤
+- 模型高分但规则分 < 0.4 → 惩罚修正（乘0.2）
+
+## ⚙️ 配置参数
+
 在代码开头的全局配置区域可调整：
 
-python
-DATA_FILE = "English_words.csv"      # 输入数据文件
-OUTPUT_FILE = "word_similarity_output.csv"  # 输出文件
-MAX_SAMPLES = 500                    # 最大处理数量（测试用）
-MAX_LEN_DIFF = 3                     # 单词长度最大差异
-BATCH_SIZE = 32                      # 批处理大小
-EMBEDDING_DIM = 128                  # 词嵌入维度
-📁 项目结构
-text
+DATA_FILE = "English_words.csv"           # 输入数据文件
+OUTPUT_FILE = "word_similarity_output.csv" # 输出文件
+MAX_SAMPLES = 500                         # 最大处理数量（测试用）
+MAX_LEN_DIFF = 3                          # 单词长度最大差异
+BATCH_SIZE = 32                           # 批处理大小
+EMBEDDING_DIM = 128                       # 词嵌入维度
+LSTM_HIDDEN = 64                          # LSTM隐藏层大小
+LSTM_LAYERS = 2                           # LSTM层数
+CNN_FILTERS = 100                         # CNN过滤器数量
+
+## 📁 项目结构
+
 word-similarity/
 ├── word_similarity.py      # 主程序
 ├── English_words.csv       # 输入数据
@@ -147,40 +183,53 @@ word-similarity/
 ├── local_model/            # 本地 BERT 模型
 ├── requirements.txt        # 依赖包列表
 └── README.md              # 说明文档
-🔧 常见问题
+
+## 🔧 常见问题
+
 Q1: 提示找不到 English_words.csv
+
 A: 确保 CSV 文件放在程序同目录下，且包含 word 和 meaning 两列。
 
 Q2: BERT 模型下载慢
+
 A: 程序已配置国内镜像源：
 
-python
 os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+
 Q3: 内存不足
+
 A: 减少 MAX_SAMPLES 或 BATCH_SIZE 的值。
 
 Q4: 并行搜索不生效
+
 A: 检查是否在启动时选择了 yes，Python 版本需 3.7+。
 
-📝 输出文件说明
+## 📝 输出文件说明
+
 word_similarity_output.csv 包含：
 
-列名	说明
-word_clean	清洗后的英文单词
-meaning_clean	清洗后的中文释义
-shape_similar_words	字形相似词及分数
-semantic_similar_words	语义相似词及分数
-semantic_cluster	语义聚类标签
-🎯 应用场景
-📖 英语学习助手：查找易混淆词、近义词
+| 列名 | 说明 |
+|------|------|
+| word | 原始英文单词 |
+| meaning | 原始中文释义 |
+| word_clean | 清洗后的英文单词 |
+| meaning_clean | 清洗后的中文释义 |
+| word_stem | 词干提取结果 |
+| word_lemma | 词形还原结果 |
+| meaning_tokens | 中文分词结果 |
+| semantic_cluster | KMeans 聚类标签 |
+| shape_similar_words | 字形相似词及分数 |
+| semantic_similar_words | 语义相似词及分数 |
 
-🔍 词典检索增强：智能纠错和联想
+## 🎯 应用场景
 
-🧠 NLP 预处理：构建词义消歧数据集
+- 📖 英语学习助手：查找易混淆词、近义词
+- 🔍 词典检索增强：智能纠错和联想
+- 🧠 NLP 预处理：构建词义消歧数据集
+- 📊 文本分析：自动发现单词聚类
 
-📊 文本分析：自动发现单词聚类
+## 📄 许可证
 
-📄 许可证
 MIT License
 
 Copyright (c) 2026
@@ -203,8 +252,10 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-🤝 贡献
+## 🤝 贡献
+
 欢迎提交 Issue 和 Pull Request！
 
-📧 联系方式
-如有问题，请通过 Issue 反馈
+## 📧 联系方式
+
+如有问题，请通过 Issue 反馈。
