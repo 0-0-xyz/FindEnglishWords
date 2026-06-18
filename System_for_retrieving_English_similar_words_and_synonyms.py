@@ -11,8 +11,10 @@
    -批量+实时交互 801-1004 主程序
 ================================================================================
 """
-
+import heapq
 import re
+from collections import defaultdict
+
 import numpy as np#数学计算
 import pandas as pd#处理表格数据
 import matplotlib.pyplot as plt#画图
@@ -89,27 +91,32 @@ class DataPreprocessor:
         self.stopwords = set(stopwords.words('english')) # 英文停用词
         self.ch_stopwords = set(['的', '了', '和', '与', '或', '一个', '一种', '这个', '那个']) # 中文停用词
 
+    # 得word_clean 清洗后的英文单词
     def clean_word(self, word):
         """英文单词标准化"""
         word = str(word).strip().lower() # 转小写，去掉首尾空格
         word = re.sub(r'[^a-z]', '', word)  # 仅保留字母
         return word
 
+    # 得meaning_clean 清洗后的中文释义
     def clean_meaning(self, meaning):
         """中文释义清洗"""
-        meaning = str(meaning).strip()
+        meaning = str(meaning).strip()#去空白字符
         meaning = re.sub(r'[^\u4e00-\u9fa5a-zA-Z0-9，,。？?！!；;]', '', meaning)
         return meaning
 
+    # 得meaning_tokens 	中文分词结果
     def tokenize_chinese(self, text):
         """中文分词并去除停用词"""
         words = jieba.lcut(text) #jieba分词
-        words = [w for w in words if w not in self.ch_stopwords and len(w.strip()) > 0]
+        words = [w for w in words if w not in self.ch_stopwords and len(w.strip()) > 0]#去停用词
         return words
 
+    # 得word_stem 词干提取结果
     def stem_english(self, word):#词干提取
         return self.stemmer.stem(word)
 
+    # 得word_lemma 词形还原结果
     def lemmatize_english(self, word):#词形还原
         return self.lemmatizer.lemmatize(word)
 
@@ -135,27 +142,36 @@ class ShapeFeatureExtractor:
     @staticmethod
     def char_coincidence_ratio(w1, w2):#两个单词用了多少相同的字母（不管顺序）
         """字符重合占比（基于集合）"""
-        set1, set2 = set(w1), set(w2)# 转换成集合（去重）
-        if not set1 or not set2:
+        set1, set2 = set(w1), set(w2)# 转换成集合（去重），集合 set 特点：同一个字母只保留 1 次
+        if not set1 or not set2:#如果其中一个单词是空字符串，直接返回相似度 0，避免分母为 0 崩溃。
             return 0.0
-        return len(set1 & set2) / len(set1 | set2) # 交集 ÷ 并集
+        return len(set1 & set2) / len(set1 | set2) # 交集（都有字母） ÷ 并集（两者全部字母）
 
     @staticmethod
     def sequence_similarity(w1, w2):#最长公共子序列的长度比例（考虑顺序）
         """基于最长公共子序列的长度比例"""
-        from difflib import SequenceMatcher
-        return SequenceMatcher(None, w1, w2).ratio()
+        common = sum(
+            c1 == c2
+            for c1, c2 in zip(w1, w2)
+        )
+        return common / max(
+            len(w1),
+            len(w2)
+        )
 
     @staticmethod
     def ngram_similarity(w1, w2, n=2):# 把单词切成连续的n个字母的小片段
-        """N-Gram 余弦相似度"""
+        """N-Gram 余弦相似度
+        和char_coincidence_ratio类似，char……处理字母，ngram……处理单词片段
+        """
 
-        def get_ngrams(s, n):
+        def get_ngrams(s, n):#切分单词
             return [s[i:i + n] for i in range(len(s) - n + 1)]
 
         grams1 = set(get_ngrams(w1, n))
         grams2 = set(get_ngrams(w2, n))
-        if not grams1 or not grams2:
+        #把切好的片段列表转集合，重复片段只保留一份。
+        if not grams1 or not grams2:#单词长度小于 n，直接返回相似度 0，防止分母为 0 报错。
             return 0.0
         inter = len(grams1 & grams2)#找交集
         return inter / (len(grams1) + len(grams2) - inter)
@@ -224,22 +240,23 @@ class ShapeMLModel:
         self.best_model =None
         self.scaler = StandardScaler()
 
+    #自动生成训练集
     def generate_training_data(self, df, feature_extractor, num_neg_samples=1):
         """基于规则生成正负样本（模拟人工标注）
-           num_neg_samples: 负样本数量与正样本数量之比（例如 1:1）"""
+           num_neg_samples: 负样本数量与正样本数量之比，1：1"""
         X, y = [], [] # X是特征，y是标签（1=相似，0=不相似）
-        words = df['word_clean'].tolist() # 所有单词列表
+        words = df['word_clean'].tolist() # 所有单词列表，pandas序列转换成普通Python列表
         stems = df['word_stem'].tolist()# 所有词干列表
         n = len(words)
 
         # ---------- 正样本 ----------
         print("  生成正样本（遍历单词对）...")
         for i in tqdm(range(n), desc="  正样本生成进度"):
-            for j in range(i + 1, min(i + 50, n)):  # 限制配对数，防止爆炸
+            for j in range(i + 1, min(i + 50, n)):  #只取当前单词后面最多 50 个单词配对，限制配对数，防止爆炸
                 w1, w2 = words[i], words[j]
                 s1, s2 = stems[i], stems[j]
-                if abs(len(w1) - len(w2)) <= MAX_LEN_DIFF:
-                    sim = feature_extractor.extract_features(w1, w2, s1, s2)
+                if abs(len(w1) - len(w2)) <= MAX_LEN_DIFF:#两个单词长度差不能超过阈值 MAX_LEN_DIFF，长度差太大直接跳过
+                    sim = feature_extractor.extract_features(w1, w2, s1, s2)#提取全套相似度特征 sim
                     if sim[1] > 0.6 and sim[5] > 0.5: # 序列相似度>0.6 且 编辑距离相似度>0.5->正样本
                         X.append(sim)
                         y.append(1)
@@ -249,26 +266,25 @@ class ShapeMLModel:
 
         # ---------- 负样本 ----------
         import random
-        target_negative = int(positive_count * num_neg_samples)
+        target_negative = int(positive_count * num_neg_samples)#计算负样本数
         print(f"  目标负样本数量: {target_negative}")
 
-        # 如果正样本太少，无法生成足够负样本，则减少比例或直接从非相似对中采样
         if target_negative <= 0:
-            target_negative = positive_count  # fallback
+            target_negative = positive_count  #
 
         pbar = tqdm(total=target_negative, desc="  负样本生成进度")
         attempts = 0
         max_attempts = target_negative * 10  # 防止无限循环
         while len(y) - positive_count < target_negative and attempts < max_attempts:
             i = random.randint(0, n - 1)
-            j = random.randint(0, n - 1)
-            if i == j:
+            j = random.randint(0, n - 1)#随机抽两个不同单词
+            if i == j:# 跳过同一个单词自己和自己配对
                 continue
             w1, w2 = words[i], words[j]
             s1, s2 = stems[i], stems[j]
-            # 判定为不相似的条件（与正样本条件相反）
+            # 判定为不相似的条件（与正样本条件相反）长度差大，或者拼写差异极大
             if abs(len(w1) - len(w2)) > MAX_LEN_DIFF or Levenshtein.ratio(w1, w2) < 0.3:
-                # 避免重复添加相同对（简单检查最近添加的，可选）
+                # 避免重复添加相同对
                 X.append(feature_extractor.extract_features(w1, w2, s1, s2))
                 y.append(0)
                 pbar.update(1)
@@ -278,9 +294,9 @@ class ShapeMLModel:
         negative_count = len(y) - positive_count
         print(f"  实际负样本数量: {negative_count}")
 
-        #处理异常情况：如果没生成负样本，用更宽松的条件：编辑距离>一半长度（改了一半以上字母）
+        #处理异常情况：如果没生成负样本，用更宽松的条件：
+        # 编辑距离>一半长度（改了一半以上字母）即两个单词一半以上字母都不一样，强制当作负样本。
         if negative_count == 0:
-            # 如果仍然没有负样本，采用简单方法：随机配对并确保编辑距离较大
             while len(y) - positive_count < target_negative:
                 i = random.randint(0, n - 1)
                 j = random.randint(0, n - 1)
@@ -317,7 +333,7 @@ class ShapeMLModel:
         return self.best_model
 
     def predict_prob(self, features):
-        """返回相似概率（单个样本）"""
+        """返回相似概率（单个样本一组单词）"""
         if self.best_model is None:
             return 0.5# 没训练时默认50%
         feat = self.scaler.transform(features.reshape(1, -1))
@@ -337,26 +353,42 @@ class ShapeMLModel:
 
 
 #深度学习模块
-#前7个特征是人为设计，深度学习的思路：不设计特征，让神经网络自动学习特征
+#前7个特征是人为设计，局限性表达能力上限极低，不能单独表示单个单词，泛化差，无法捕捉细粒度局部字形
+# 深度学习的思路：不设计特征，让神经网络自动学习特征
 #单词->固定长度向量
 class CharLSTMEncoder(nn.Module):#提取特征的方式按顺序记忆
-    """LSTM 编码器，将单词映射为固定长度向量"""
+    """LSTM 编码器，按字母顺序读取单词，用 LSTM 学习字母顺序特征，将单词映射为固定长度向量"""
 
     def __init__(self, vocab_size, embed_dim, hidden_dim, num_layers, char_max_len=20):
+        # embed_dim：单个字母向量维度 固定 32
+        # hidden_dim：LSTM 每层记忆单元数（LSTM_HIDDEN=64）
+        # num_layers：LSTM 堆叠层数（ 固定 2 对应LSTM_LAYERS=2）
+        # char_max_len=20：单词最多只取前 20 个字母
         super().__init__()
+        # 1.字母嵌入层：字母数字→字母向量32
         self.embedding = nn.Embedding(vocab_size, embed_dim)
+        # 2.双向LSTM，读取字母序列
         self.lstm = nn.LSTM(embed_dim, hidden_dim, num_layers, batch_first=True, bidirectional=True)
+        # 3.全连接层，把拼接后的双向隐状态压缩成目标维度
+        # hidden_dim * 2 就是正向 + 反向两层记忆拼接。
         self.fc = nn.Linear(hidden_dim * 2, embed_dim)  # 输出 embed_dim 维向量
+        # 单词最大字母长度，超过截断、不足补0
         self.char_max_len = char_max_len
 
     def forward(self, x):
-        emb = self.embedding(x)
+        # 步骤1：字母数字编码 → 字母向量序列
+        emb = self.embedding(x)# x形状 [batch, max_len] 32，20
+        # 步骤2：送入双向LSTM，输出全部时间步结果 + 每层最后记忆状态
         out, (h_n, c_n) = self.lstm(emb)
-        h_n = h_n[-2:, :, :]
+        #h_n：每一层 LSTM、正向 / 反向，最后一个字母的记忆隐状态
+        # 其余没用到
+        # 步骤3：取出双向LSTM最后一层的正向、反向隐状态
+        h_n = h_n[-2:, :, :]#切片 [-2:] 取最后两行 最顶层的正向、反向隐状态
+        # 步骤4：调换维度，把正向、反向向量拼在一起
         h_n = h_n.permute(1, 0, 2).reshape(h_n.size(1), -1)
+        # 步骤5：全连接压缩，输出单词整体向量
         vec = self.fc(h_n)
         return vec
-
 
 """将单词转换为固定长度（128）的向量（数值表示）"""
 #提取局部关键特征 数字→向量的数学运算
@@ -384,7 +416,9 @@ class CharCNNEncoder(nn.Module):
         concat = torch.cat(conv_outs, dim=1)# 步骤4: 拼接 # [batch, num_filters * len(kernel_sizes)]
         vec = self.fc(concat)# 步骤5: 全连接层[batch, embed_dim]
         return vec
-#单词→向量  字母转数字+填充
+
+
+#统一封装单词→向量  字母转数字+填充 LSTM/CNN
 class WordEncoder:
 
 #单词->128维数字向量
@@ -412,7 +446,7 @@ class WordEncoder:
             indices += [0] * (self.char_max_len - len(indices))
         return torch.tensor(indices, dtype=torch.long)
 
-    def build_model(self):
+    def build_model(self):#实例化深度学习编码器
         if self.encoder_type == 'lstm':
             self.model = CharLSTMEncoder(self.vocab_size, 32, self.embed_dim, 2, self.char_max_len)
             #输入词汇表大小，隐藏层维度，输出向量维度，LSTM层数，序列长度
@@ -422,12 +456,12 @@ class WordEncoder:
         self.model.to(DEVICE)
         return self.model
 
-    def train_unsupervised(self, word_list, epochs=10):
+    def train_unsupervised(self, word_list, epochs=10):#无监督训练占位函数
         self.build_model()
         print("[DL] 字形编码器使用随机初始化，没有真正训练。")
         return self.model
 
-    def encode_words(self, words):
+    def encode_words(self, words):# 批量单词转向量
         if self.model is None:
             self.build_model()
         self.model.eval() # 评估模式（不训练）
@@ -437,16 +471,19 @@ class WordEncoder:
             vectors = self.model(batch)
         return vectors.cpu().numpy() # 转成 numpy 数组
 
-#将中文句子的语义转换为向量表示
+#将中文句子的语义转换为向量表示 Sentence-BERT
 class SemanticEncoder:
     """中文语义编码器"""
 
     def __init__(self):
-        # 获取当前脚本所在目录
+        # 获取当前代码文件所在文件夹
         script_dir = os.path.dirname(os.path.abspath(__file__))
+        # 拼接本地模型文件夹路径 local_model
         local_model_path = os.path.join(script_dir, "local_model")
         print(f" 从本地路径加载模型: {local_model_path}")
+        #加载本地 Sentence-BERT 中文预训练模型
         self.model = SentenceTransformer(local_model_path)
+        #模型迁移到GPU/CPU
         self.model.to(DEVICE)
         print(" 语义模型加载完成")
 
@@ -467,6 +504,7 @@ class SemanticEncoder:
 
 # 聚类分析KMeans+Hierarchical
 #输入单词的向量表示->自动将相似的单词分成若干组,自动发现单词类别
+# 得 semantic_cluster KMeans 聚类标签
 class WordCluster:
     def __init__(self, n_clusters=10):
         self.kmeans = KMeans(n_clusters=n_clusters, random_state=42)
@@ -483,6 +521,7 @@ class WordCluster:
 
 #相似度融合及检索,根据字形相似度和语义相似度来查找相似的单词。
 #输入一个单词或句子 → 在数据库中查找最相似的单词（支持字形匹配和语义匹配两种方式）
+# 得shape_similar_words（字形相似词及分数）、semantic_similar_words(语义相似词及分数)
 class SimilaritySearcher:
     def __init__(self, ml_model, shape_encoder, sem_encoder, feature_extractor, words_df):
         self.ml_model = ml_model
@@ -490,14 +529,22 @@ class SimilaritySearcher:
         self.sem_encoder = sem_encoder
         self.feature_extractor = feature_extractor
         self.df = words_df
+        #全局缓存词库列表，避免反复查表
         self.word_list = words_df['word_clean'].tolist()
         self.stem_list = words_df['word_stem'].tolist()
         self.meaning_list = words_df['meaning_clean'].tolist()
         self.sem_vectors = None
+        #长度索引 全部扫描->扫描长度相近的单词
+        self.length_index = defaultdict(list)
+        for idx, word in enumerate(self.word_list):
+            self.length_index[len(word)].append(idx)
+
+        self.shape_cache = {}#缓存
         #并行 ↓
-        self.max_workers = 4  # 默认线程数
+        self.max_workers = 12  # 默认线程数
         self.use_parallel = False  # 是否启用并行模式
 
+    #并行配置接口
     def set_parallel_config(self, max_workers=None, enable=True):
         """配置并行搜索参数
 
@@ -558,6 +605,7 @@ class SimilaritySearcher:
 
         return results
 
+    #批量查形近词
     def batch_search_shape_parallel(self, query_list, top_k=5, show_progress=True):
         """批量并行搜索字形相似词
 
@@ -597,6 +645,7 @@ class SimilaritySearcher:
 
         return results
 
+    #批量查近义词
     def batch_search_semantic_parallel(self, meaning_list, top_k=5, show_progress=True):
         """批量并行搜索语义相似词
 
@@ -634,6 +683,7 @@ class SimilaritySearcher:
 
         return results
 
+    #批量同时查形近 + 语义近义词
     def batch_search_both_parallel(self, query_list, top_k=5, show_progress=True):
         """批量并行同时搜索字形和语义
 
@@ -675,12 +725,20 @@ class SimilaritySearcher:
         return results
 
     #并行 ↑
+
+    #语义向量预计算
     def precompute_semantic_vectors(self):#计算所有单词的中文释义向量
         print("[语义] 开始预计算所有单词的中文向量...")
         self.sem_vectors = self.sem_encoder.encode_meanings(self.meaning_list)
         print(f"[语义] 已计算 {len(self.sem_vectors)} 个向量")
 
+    #字形相似度打分
     def get_shape_similarity(self, query_word, query_stem, candidate_word, candidate_stem):
+        cache_key = (query_word,candidate_word)
+
+        if cache_key in self.shape_cache:
+            return self.shape_cache[cache_key]
+
         #长度过滤：如果长度差超过硬性限制，直接返回 0
         if abs(len(query_word) - len(candidate_word)) > MAX_LEN_DIFF:
             return 0.0
@@ -704,6 +762,7 @@ class SimilaritySearcher:
 
         #模型6规则4
         final_score = 0.4 * rule_score + 0.6 * ml_prob
+        self.shape_cache[cache_key] = final_score
         return final_score
 
     #比较两个中文句子的语义相似度
@@ -712,34 +771,67 @@ class SimilaritySearcher:
         c_vec = self.sem_encoder.encode_meanings([candidate_meaning])[0]
         return self.sem_encoder.similarity(q_vec, c_vec, metric)
 
-    #易混词搜索
+    #易混词搜索,单单词形近词检索
     def search_shape_similar(self, query_word, query_stem, top_k=10):
         scores = []
-        # 遍历所有候选词
-        for idx, (w, s) in enumerate(zip(self.word_list, self.stem_list)):
-            if w == query_word:# 跳过自己
+        # 长度索引过滤
+        candidate_indices = []
+
+        min_len = len(query_word) - MAX_LEN_DIFF
+        max_len = len(query_word) + MAX_LEN_DIFF
+
+        for l in range(min_len, max_len + 1):
+            candidate_indices.extend(
+                self.length_index.get(l, [])
+            )
+
+        for idx in candidate_indices:
+
+            w = self.word_list[idx]
+            s = self.stem_list[idx]
+
+            if w == query_word:
+                continue
+        # 字母重合预过滤
+            char_ratio = (ShapeFeatureExtractor.char_coincidence_ratio(query_word,w))
+
+            if char_ratio < 0.30:
                 continue
 
-            #长度过滤
-            if abs(len(query_word) - len(w)) > MAX_LEN_DIFF:
-                continue
-            # 计算相似度
-            score = self.get_shape_similarity(query_word, query_stem, w, s)
-            #保留高分
-            if score > 0.1:  # 只有大于一定阈值的才加入候选
-                scores.append((idx, score))
-        # 排序并返回top_k
-        scores.sort(key=lambda x: x[1], reverse=True)
-        top_indices = [i for i, _ in scores[:top_k]]
+            score = self.get_shape_similarity(
+                query_word,
+                query_stem,
+                w,
+                s
+            )
+
+            if score > 0.1:
+                scores.append(
+                    (idx, score)
+                )
+        # TopK
+        top_scores = heapq.nlargest(
+            top_k,
+            scores,
+            key=lambda x: x[1]
+        )
+
         results = []
-        for idx in top_indices:
-            # 找到当前 idx 在 scores 中的分数
-            current_score = next(score for i, score in scores if i == idx)
-            results.append({
-                'word': self.word_list[idx],
-                'meaning': self.meaning_list[idx],
-                'score': current_score
-            })
+
+        for idx, score in top_scores:
+            results.append(
+                {
+                    'word':
+                        self.word_list[idx],
+
+                    'meaning':
+                        self.meaning_list[idx],
+
+                    'score':
+                        score
+                }
+            )
+
         return results
     #近义词搜索
     def search_semantic_similar(self, query_meaning, top_k=10, metric='cosine'):
@@ -818,12 +910,12 @@ def main():
         raise ValueError("无法识别文件编码，请检查 CSV 文件格式")
 
     # 限制数据量（用于快速测试）
-    """"""
+    """
     MAX_SAMPLES = 500
     if len(df_raw) > MAX_SAMPLES:
         print(f"  数据量较大，仅取前 {MAX_SAMPLES} 条")
         df_raw = df_raw.head(MAX_SAMPLES)
-
+    """
     print(f"  原始数据行数: {len(df_raw)}")
     preprocessor = DataPreprocessor()
     print("  开始预处理...")
@@ -886,7 +978,7 @@ def main():
     print("\n[8/8] 就绪，等待用户指令")
     choice = input("\n请问是否需要生成【全数据集批量整理后的完整相似词列表文件】？请输入 yes / no : ").strip().lower()
 
-    if choice == 'yes':
+    if choice == 'yes':#批量
         print("\n[批量模式] 正在为所有单词计算相似词...")
     #并行↓
         if searcher.use_parallel:
@@ -908,14 +1000,14 @@ def main():
             shape_sim_list = []
             sem_sim_list = []
             for result in results:
-                shape_str = "; ".join([f"{r['word']}({r['score']:.3f})" for r in result['shape_results']])
+                shape_str = "; ".join([f"{r['word']}({r['score']:.3f})：{r['meaning']})" for r in result['shape_results']])
                 sem_str = "; ".join([f"{r['word']}:{r['meaning']}({r['score']:.3f})" for r in result['semantic_results']])
                 shape_sim_list.append(shape_str)
                 sem_sim_list.append(sem_str)
 
             df['shape_similar_words'] = shape_sim_list
             df['semantic_similar_words'] = sem_sim_list
-        #并行↑
+            #并行↑
         else:#不并行
             shape_sim_list = []
             sem_sim_list = []
@@ -930,7 +1022,7 @@ def main():
                 sem_res = searcher.search_semantic_similar(q_meaning, top_k=5)
 
                 #直接从返回的字典里取 score
-                shape_str = "; ".join([f"{r['word']}({r['score']:.3f})" for r in shape_res])
+                shape_str = "; ".join([f"{r['word']}({r['score']:.3f})：{r['meaning']}" for r in shape_res])
                 sem_str = "; ".join([f"{r['word']}:{r['meaning']}({r['score']:.3f})" for r in sem_res])
 
                 shape_sim_list.append(shape_str)
@@ -938,12 +1030,12 @@ def main():
 
             df['shape_similar_words'] = shape_sim_list
             df['semantic_similar_words'] = sem_sim_list
-            df.to_csv(OUTPUT_FILE, index=False, encoding='utf-8-sig')
-            print(f"[完成] 批量结果已保存至 {OUTPUT_FILE}")
+        df.to_csv(OUTPUT_FILE, index=False, encoding='utf-8-sig')
+        print(f"[完成] 批量结果已保存至 {OUTPUT_FILE}")
 
-            #可视化语义向量
-            print("\n[可视化] 展示语义向量的 PCA 降维分布...")
-            Evaluator.visualize_embeddings(sem_vecs, cluster_labels, title="Semantic Clusters of Words")
+        #可视化语义向量
+        print("\n[可视化] 展示语义向量的 PCA 降维分布...")
+        Evaluator.visualize_embeddings(sem_vecs, cluster_labels, title="Semantic Clusters of Words")
     else:#实时
         print("\n[实时模式] 请输入单词信息进行相似检索")
         while True:#一直询问
